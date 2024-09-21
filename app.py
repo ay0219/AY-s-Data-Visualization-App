@@ -11,7 +11,7 @@ st.set_page_config(page_title="Universal Data Visualization App", layout="wide")
 
 # Title of the app
 st.title("Universal Data Visualization Tool")
-st.write("Upload any CSV file, specify parsing options if needed, select variables of interest, and visualize your data.")
+st.write("Upload any CSV file, specify parsing options if needed, select variables of interest, explore your data, and visualize it.")
 
 # Sidebar header
 st.sidebar.header('User Options')
@@ -115,20 +115,16 @@ if uploaded_file is not None:
     else:
         st.success("No missing values detected in the dataset.")
 
-    # Function to check if a column is numeric
-    def is_numeric(column_data):
-        try:
-            pd.to_numeric(column_data)
-            return True
-        except:
-            return False
-
     # Data type correction
     st.sidebar.subheader("Data Type Correction")
     data_type_corrections = {}
     for col in selected_columns:
-        current_type = df[col].dtype
-        desired_type = st.sidebar.selectbox(f"Select data type for column '{col}'", options=['auto', 'string', 'numeric'], index=0)
+        current_type = str(df[col].dtype)
+        desired_type = st.sidebar.selectbox(
+            f"Select data type for column '{col}' (Current type: {current_type})",
+            options=['auto', 'string', 'numeric', 'categorical'],
+            index=0
+        )
         data_type_corrections[col] = desired_type
 
     for col, dtype in data_type_corrections.items():
@@ -136,16 +132,34 @@ if uploaded_file is not None:
             df[col] = df[col].astype(str)
         elif dtype == 'numeric':
             df[col] = pd.to_numeric(df[col], errors='coerce')
+        elif dtype == 'categorical':
+            df[col] = df[col].astype('category')
+        else:
+            pass  # Keep as is
 
     # Update column lists after type correction
-    numeric_columns = [col for col in selected_columns if is_numeric(df[col])]
-    categorical_columns = [col for col in selected_columns if not is_numeric(df[col])]
+    numeric_columns = [col for col in selected_columns if pd.api.types.is_numeric_dtype(df[col])]
+    categorical_columns = [col for col in selected_columns if pd.api.types.is_string_dtype(df[col]) or pd.api.types.is_categorical_dtype(df[col])]
+
+    # Data Exploration Section
+    st.subheader("Data Exploration")
+
+    # Display summary statistics
+    if st.checkbox("Show Summary Statistics"):
+        st.write("### Summary Statistics of Numeric Variables")
+        st.write(df[numeric_columns].describe())
+
+    # Interactive data table
+    if st.checkbox("Explore Data in Interactive Table"):
+        st.write("### Interactive Data Table")
+        st.dataframe(df)
 
     # Initialize variables
     x_variable = y_variable = z_variable = hue_variable = None
     x_label = y_label = z_label = chart_title = ""
 
     # Chart selection
+    st.sidebar.subheader("Visualization Options")
     chart_type = st.sidebar.selectbox(
         'Select chart type',
         ['Scatter Plot', 'Line Plot', 'Bar Plot', 'Histogram', 'Box Plot', 'Heatmap', 'Pairplot', '3D Scatter Plot']
