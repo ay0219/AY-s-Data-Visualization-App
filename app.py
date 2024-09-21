@@ -4,38 +4,77 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from io import BytesIO
+import chardet
 
 # Set the page configuration
 st.set_page_config(page_title="Universal Data Visualization App", layout="wide")
 
 # Title of the app
 st.title("Universal Data Visualization Tool")
-st.write("Upload any CSV file, select variables and chart type, and visualize your data.")
+st.write("Upload any CSV file, specify parsing options if needed, and visualize your data.")
 
 # Sidebar header
 st.sidebar.header('User Options')
 
+# Function to detect file encoding
+def detect_encoding(uploaded_file):
+    raw_data = uploaded_file.read()
+    result = chardet.detect(raw_data)
+    encoding = result['encoding']
+    return encoding
+
 # File uploader
 uploaded_file = st.sidebar.file_uploader("Upload your CSV file", type=["csv"])
 
-# Function to check if a column is numeric
-def is_numeric(column_data):
-    try:
-        pd.to_numeric(column_data)
-        return True
-    except:
-        return False
-
 # Check if file is uploaded
 if uploaded_file is not None:
+    # Encoding detection
+    uploaded_file.seek(0)
+    detected_encoding = detect_encoding(uploaded_file)
+    st.sidebar.write(f"Detected file encoding: **{detected_encoding}**")
+
+    # CSV parsing options
+    st.sidebar.subheader("CSV Parsing Options")
+    encoding_options = st.sidebar.selectbox("Select file encoding", options=[detected_encoding, 'utf-8', 'ISO-8859-1', 'latin1'])
+    delimiter_options = st.sidebar.selectbox("Select delimiter", options=[',', ';', '\t', '|', 'Other'])
+    if delimiter_options == 'Other':
+        delimiter = st.sidebar.text_input("Enter custom delimiter")
+    else:
+        delimiter = delimiter_options
+
+    header_option = st.sidebar.radio("Does your file have a header row?", options=['Yes', 'No'])
+    if header_option == 'Yes':
+        header = 0
+    else:
+        header = None
+
+    # Read CSV with specified options
     try:
-        # Read the CSV file
-        df = pd.read_csv(uploaded_file)
+        uploaded_file.seek(0)  # Reset file pointer
+        df = pd.read_csv(
+            uploaded_file,
+            encoding=encoding_options,
+            delimiter=delimiter,
+            header=header,
+            engine='python',
+            error_bad_lines=False,
+            warn_bad_lines=True
+        )
         st.write("## Preview of the dataset")
         st.dataframe(df.head())
     except Exception as e:
         st.error(f"Error reading the CSV file: {e}")
         st.stop()
+
+    # Allow users to rename columns
+    st.sidebar.subheader("Column Settings")
+    rename_columns = st.sidebar.checkbox("Rename columns for clarity")
+    if rename_columns:
+        new_column_names = {}
+        for col in df.columns:
+            new_name = st.sidebar.text_input(f"Rename column '{col}'", value=col)
+            new_column_names[col] = new_name
+        df.rename(columns=new_column_names, inplace=True)
 
     # Handle missing values
     if df.isnull().values.any():
@@ -57,10 +96,32 @@ if uploaded_file is not None:
     else:
         st.success("No missing values detected in the dataset.")
 
+    # Function to check if a column is numeric
+    def is_numeric(column_data):
+        try:
+            pd.to_numeric(column_data)
+            return True
+        except:
+            return False
+
     # Lists of columns
     all_columns = df.columns.tolist()
 
-    # Determine data types dynamically
+    # Data type correction
+    st.sidebar.subheader("Data Type Correction")
+    data_type_corrections = {}
+    for col in all_columns:
+        current_type = df[col].dtype
+        desired_type = st.sidebar.selectbox(f"Select data type for column '{col}'", options=['auto', 'string', 'numeric'], index=0)
+        data_type_corrections[col] = desired_type
+
+    for col, dtype in data_type_corrections.items():
+        if dtype == 'string':
+            df[col] = df[col].astype(str)
+        elif dtype == 'numeric':
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    # Update column lists after type correction
     numeric_columns = [col for col in all_columns if is_numeric(df[col])]
     categorical_columns = [col for col in all_columns if not is_numeric(df[col])]
 
@@ -77,9 +138,9 @@ if uploaded_file is not None:
     # Variable selection based on chart type
     if chart_type == 'Heatmap':
         st.sidebar.subheader('Heatmap Options')
-        selected_columns = st.sidebar.multiselect('Select variables for Heatmap (Numerical)', numeric_columns)
+        selected_columns = st.sidebar.multiselect('Select variables for Heatmap (Numeric)', numeric_columns)
         if len(selected_columns) < 2:
-            st.error("Please select at least two numerical variables for Heatmap.")
+            st.error("Please select at least two numeric variables for Heatmap.")
             st.stop()
         # Chart Title Input
         chart_title = st.sidebar.text_input("Enter chart title", "Heatmap")
@@ -92,7 +153,7 @@ if uploaded_file is not None:
             st.stop()
         # Grouping variable
         if st.sidebar.checkbox('Add a grouping variable'):
-            hue_variable = st.sidebar.selectbox('Select grouping variable', all_columns)
+            hue_variable = st.sidebar.selectbox('Select grouping variable', categorical_columns + numeric_columns)
         else:
             hue_variable = None
         # Chart Title Input
@@ -100,15 +161,12 @@ if uploaded_file is not None:
 
     elif chart_type == '3D Scatter Plot':
         if len(numeric_columns) < 3:
-            st.error("Your data must have at least three numerical columns for a 3D Scatter Plot.")
+            st.error("Your data must have at least three numeric columns for a 3D Scatter Plot.")
             st.stop()
         st.sidebar.subheader('3D Scatter Plot Options')
-        x_variable = st.sidebar.selectbox('Select X variable (Numerical)', numeric_columns, key='x_var_3d')
-        y_variable = st.sidebar.selectbox('Select Y variable (Numerical)', numeric_columns, key='y_var_3d')
-        z_variable = st.sidebar.selectbox('Select Z variable (Numerical)', numeric_columns, key='z_var_3d')
-        if not x_variable or not y_variable or not z_variable:
-            st.error("Please select variables for all axes.")
-            st.stop()
+        x_variable = st.sidebar.selectbox('Select X variable (Numeric)', numeric_columns, key='x_var_3d')
+        y_variable = st.sidebar.selectbox('Select Y variable (Numeric)', numeric_columns, key='y_var_3d')
+        z_variable = st.sidebar.selectbox('Select Z variable (Numeric)', numeric_columns, key='z_var_3d')
         if x_variable == y_variable or x_variable == z_variable or y_variable == z_variable:
             st.error("Please select three different variables for X, Y, and Z axes.")
             st.stop()
@@ -120,7 +178,7 @@ if uploaded_file is not None:
         chart_title = st.sidebar.text_input("Enter chart title", "3D Scatter Plot")
         # Grouping variable
         if st.sidebar.checkbox('Add a grouping variable', key='grouping_3d'):
-            hue_variable = st.sidebar.selectbox('Select grouping variable', all_columns, key='hue_3d')
+            hue_variable = st.sidebar.selectbox('Select grouping variable', categorical_columns + numeric_columns, key='hue_3d')
         else:
             hue_variable = None
 
@@ -132,10 +190,10 @@ if uploaded_file is not None:
         # Variable selection and labels
         if chart_type in ['Scatter Plot', 'Line Plot']:
             if len(numeric_columns) < 2:
-                st.error("Your data must have at least two numerical columns for this plot.")
+                st.error("Your data must have at least two numeric columns for this plot.")
                 st.stop()
-            x_variable = st.sidebar.selectbox('Select X variable (Numerical)', numeric_columns)
-            y_variable = st.sidebar.selectbox('Select Y variable (Numerical)', numeric_columns)
+            x_variable = st.sidebar.selectbox('Select X variable (Numeric)', numeric_columns)
+            y_variable = st.sidebar.selectbox('Select Y variable (Numeric)', numeric_columns)
             if not x_variable or not y_variable:
                 st.error("Please select both X and Y variables.")
                 st.stop()
@@ -144,7 +202,7 @@ if uploaded_file is not None:
             y_label = st.sidebar.text_input("Enter Y-axis label", y_variable)
             # Grouping variable
             if st.sidebar.checkbox('Add a grouping variable'):
-                hue_variable = st.sidebar.selectbox('Select grouping variable', all_columns)
+                hue_variable = st.sidebar.selectbox('Select grouping variable', categorical_columns + numeric_columns)
             else:
                 hue_variable = None
 
@@ -153,10 +211,10 @@ if uploaded_file is not None:
                 st.error("Your data must have at least one categorical column for the X-axis.")
                 st.stop()
             if not numeric_columns:
-                st.error("Your data must have at least one numerical column for the Y-axis.")
+                st.error("Your data must have at least one numeric column for the Y-axis.")
                 st.stop()
             x_variable = st.sidebar.selectbox('Select X variable (Categorical)', categorical_columns)
-            y_variable = st.sidebar.selectbox('Select Y variable (Numerical)', numeric_columns)
+            y_variable = st.sidebar.selectbox('Select Y variable (Numeric)', numeric_columns)
             if not x_variable or not y_variable:
                 st.error("Please select both X and Y variables.")
                 st.stop()
@@ -171,19 +229,18 @@ if uploaded_file is not None:
 
         elif chart_type == 'Histogram':
             if not numeric_columns:
-                st.error("Your data must have at least one numerical column for the Histogram.")
+                st.error("Your data must have at least one numeric column for the Histogram.")
                 st.stop()
-            x_variable = st.sidebar.selectbox('Select variable for Histogram (Numerical)', numeric_columns)
+            x_variable = st.sidebar.selectbox('Select variable for Histogram (Numeric)', numeric_columns)
             if not x_variable:
                 st.error("Please select a variable for the Histogram.")
                 st.stop()
             # Custom Axis Label
             x_label = st.sidebar.text_input("Enter X-axis label", x_variable)
             y_label = "Frequency"
-            # Chart Title Input (already present)
             # Grouping variable
             if st.sidebar.checkbox('Add a grouping variable'):
-                hue_variable = st.sidebar.selectbox('Select grouping variable', all_columns)
+                hue_variable = st.sidebar.selectbox('Select grouping variable', categorical_columns + numeric_columns)
             else:
                 hue_variable = None
 
@@ -192,10 +249,10 @@ if uploaded_file is not None:
                 st.error("Your data must have at least one categorical column for the X-axis.")
                 st.stop()
             if not numeric_columns:
-                st.error("Your data must have at least one numerical column for the Y-axis.")
+                st.error("Your data must have at least one numeric column for the Y-axis.")
                 st.stop()
             x_variable = st.sidebar.selectbox('Select X variable (Categorical)', categorical_columns)
-            y_variable = st.sidebar.selectbox('Select Y variable (Numerical)', numeric_columns)
+            y_variable = st.sidebar.selectbox('Select Y variable (Numeric)', numeric_columns)
             if not x_variable or not y_variable:
                 st.error("Please select both X and Y variables.")
                 st.stop()
@@ -204,7 +261,7 @@ if uploaded_file is not None:
             y_label = st.sidebar.text_input("Enter Y-axis label", y_variable)
             # Grouping variable
             if st.sidebar.checkbox('Add a grouping variable'):
-                hue_variable = st.sidebar.selectbox('Select grouping variable', all_columns)
+                hue_variable = st.sidebar.selectbox('Select grouping variable', categorical_columns + numeric_columns)
             else:
                 hue_variable = None
 
