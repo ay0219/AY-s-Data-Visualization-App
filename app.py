@@ -23,7 +23,7 @@ def is_numeric(column_data):
     try:
         pd.to_numeric(column_data)
         return True
-    except ValueError:
+    except:
         return False
 
 # Check if file is uploaded
@@ -32,7 +32,7 @@ if uploaded_file is not None:
         # Read the CSV file
         df = pd.read_csv(uploaded_file)
         st.write("## Preview of the dataset")
-        st.dataframe(df)
+        st.dataframe(df.head())
     except Exception as e:
         st.error(f"Error reading the CSV file: {e}")
         st.stop()
@@ -66,6 +66,7 @@ if uploaded_file is not None:
 
     # Initialize variables
     x_variable = y_variable = z_variable = hue_variable = None
+    x_label = y_label = z_label = chart_title = ""
 
     # Chart selection
     chart_type = st.sidebar.selectbox(
@@ -77,29 +78,37 @@ if uploaded_file is not None:
     if chart_type == 'Heatmap':
         st.sidebar.subheader('Heatmap Options')
         selected_columns = st.sidebar.multiselect('Select variables for Heatmap (Numerical)', numeric_columns)
-        # Chart Title Input
-        chart_title = st.sidebar.text_input("Enter chart title", "Heatmap")
         if len(selected_columns) < 2:
             st.error("Please select at least two numerical variables for Heatmap.")
             st.stop()
+        # Chart Title Input
+        chart_title = st.sidebar.text_input("Enter chart title", "Heatmap")
 
     elif chart_type == 'Pairplot':
         st.sidebar.subheader('Pairplot Options')
         selected_columns = st.sidebar.multiselect('Select variables for Pairplot', all_columns)
-        # Chart Title Input
-        chart_title = st.sidebar.text_input("Enter chart title", "Pairplot")
         if len(selected_columns) < 2:
             st.error("Please select at least two variables for Pairplot.")
             st.stop()
+        # Grouping variable
+        if st.sidebar.checkbox('Add a grouping variable'):
+            hue_variable = st.sidebar.selectbox('Select grouping variable', all_columns)
+        else:
+            hue_variable = None
+        # Chart Title Input
+        chart_title = st.sidebar.text_input("Enter chart title", "Pairplot")
 
     elif chart_type == '3D Scatter Plot':
-        st.sidebar.subheader('3D Scatter Plot Options')
         if len(numeric_columns) < 3:
             st.error("Your data must have at least three numerical columns for a 3D Scatter Plot.")
             st.stop()
-        x_variable = st.sidebar.selectbox('Select X variable (Numerical)', numeric_columns)
-        y_variable = st.sidebar.selectbox('Select Y variable (Numerical)', numeric_columns)
-        z_variable = st.sidebar.selectbox('Select Z variable (Numerical)', numeric_columns)
+        st.sidebar.subheader('3D Scatter Plot Options')
+        x_variable = st.sidebar.selectbox('Select X variable (Numerical)', numeric_columns, key='x_var_3d')
+        y_variable = st.sidebar.selectbox('Select Y variable (Numerical)', numeric_columns, key='y_var_3d')
+        z_variable = st.sidebar.selectbox('Select Z variable (Numerical)', numeric_columns, key='z_var_3d')
+        if not x_variable or not y_variable or not z_variable:
+            st.error("Please select variables for all axes.")
+            st.stop()
         if x_variable == y_variable or x_variable == z_variable or y_variable == z_variable:
             st.error("Please select three different variables for X, Y, and Z axes.")
             st.stop()
@@ -110,23 +119,26 @@ if uploaded_file is not None:
         # Chart Title Input
         chart_title = st.sidebar.text_input("Enter chart title", "3D Scatter Plot")
         # Grouping variable
-        if st.sidebar.checkbox('Add a grouping variable'):
-            hue_variable = st.sidebar.selectbox('Select grouping variable', all_columns)
+        if st.sidebar.checkbox('Add a grouping variable', key='grouping_3d'):
+            hue_variable = st.sidebar.selectbox('Select grouping variable', all_columns, key='hue_3d')
         else:
             hue_variable = None
 
     else:
         st.sidebar.subheader(f'{chart_type} Options')
-
         # Chart Title Input
         chart_title = st.sidebar.text_input("Enter chart title", chart_type)
 
+        # Variable selection and labels
         if chart_type in ['Scatter Plot', 'Line Plot']:
             if len(numeric_columns) < 2:
                 st.error("Your data must have at least two numerical columns for this plot.")
                 st.stop()
             x_variable = st.sidebar.selectbox('Select X variable (Numerical)', numeric_columns)
             y_variable = st.sidebar.selectbox('Select Y variable (Numerical)', numeric_columns)
+            if not x_variable or not y_variable:
+                st.error("Please select both X and Y variables.")
+                st.stop()
             # Custom Axis Labels
             x_label = st.sidebar.text_input("Enter X-axis label", x_variable)
             y_label = st.sidebar.text_input("Enter Y-axis label", y_variable)
@@ -145,12 +157,15 @@ if uploaded_file is not None:
                 st.stop()
             x_variable = st.sidebar.selectbox('Select X variable (Categorical)', categorical_columns)
             y_variable = st.sidebar.selectbox('Select Y variable (Numerical)', numeric_columns)
+            if not x_variable or not y_variable:
+                st.error("Please select both X and Y variables.")
+                st.stop()
             # Custom Axis Labels
             x_label = st.sidebar.text_input("Enter X-axis label", x_variable)
             y_label = st.sidebar.text_input("Enter Y-axis label", y_variable)
             # Grouping variable
             if st.sidebar.checkbox('Add a grouping variable'):
-                hue_variable = st.sidebar.selectbox('Select grouping variable', all_columns)
+                hue_variable = st.sidebar.selectbox('Select grouping variable', categorical_columns + numeric_columns)
             else:
                 hue_variable = None
 
@@ -159,9 +174,13 @@ if uploaded_file is not None:
                 st.error("Your data must have at least one numerical column for the Histogram.")
                 st.stop()
             x_variable = st.sidebar.selectbox('Select variable for Histogram (Numerical)', numeric_columns)
+            if not x_variable:
+                st.error("Please select a variable for the Histogram.")
+                st.stop()
             # Custom Axis Label
             x_label = st.sidebar.text_input("Enter X-axis label", x_variable)
             y_label = "Frequency"
+            # Chart Title Input (already present)
             # Grouping variable
             if st.sidebar.checkbox('Add a grouping variable'):
                 hue_variable = st.sidebar.selectbox('Select grouping variable', all_columns)
@@ -177,6 +196,9 @@ if uploaded_file is not None:
                 st.stop()
             x_variable = st.sidebar.selectbox('Select X variable (Categorical)', categorical_columns)
             y_variable = st.sidebar.selectbox('Select Y variable (Numerical)', numeric_columns)
+            if not x_variable or not y_variable:
+                st.error("Please select both X and Y variables.")
+                st.stop()
             # Custom Axis Labels
             x_label = st.sidebar.text_input("Enter X-axis label", x_variable)
             y_label = st.sidebar.text_input("Enter Y-axis label", y_variable)
@@ -187,7 +209,7 @@ if uploaded_file is not None:
                 hue_variable = None
 
     # Plotting
-    st.write(f"## {chart_type}")
+    st.write(f"## {chart_title}")
 
     try:
         if chart_type == 'Heatmap':
@@ -255,19 +277,18 @@ if uploaded_file is not None:
 
             if chart_type == 'Scatter Plot':
                 sns.scatterplot(data=df, x=x_variable, y=y_variable, hue=hue_variable, ax=ax)
-
             elif chart_type == 'Line Plot':
                 sns.lineplot(data=df, x=x_variable, y=y_variable, hue=hue_variable, ax=ax)
-
             elif chart_type == 'Bar Plot':
                 sns.barplot(data=df, x=x_variable, y=y_variable, hue=hue_variable, ax=ax)
-
             elif chart_type == 'Histogram':
                 sns.histplot(data=df, x=x_variable, hue=hue_variable, kde=True, ax=ax)
                 ax.set_ylabel(y_label)
-
             elif chart_type == 'Box Plot':
                 sns.boxplot(data=df, x=x_variable, y=y_variable, hue=hue_variable, ax=ax)
+            else:
+                st.error("Unsupported chart type selected.")
+                st.stop()
 
             ax.set_xlabel(x_label)
             ax.set_ylabel(y_label)
