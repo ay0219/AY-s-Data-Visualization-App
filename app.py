@@ -11,7 +11,7 @@ st.set_page_config(page_title="Universal Data Visualization App", layout="wide")
 
 # Title of the app
 st.title("Universal Data Visualization Tool")
-st.write("Upload any CSV file, specify parsing options if needed, and visualize your data.")
+st.write("Upload any CSV file, specify parsing options if needed, select variables of interest, and visualize your data.")
 
 # Sidebar header
 st.sidebar.header('User Options')
@@ -65,6 +65,25 @@ if uploaded_file is not None:
         st.error(f"Error reading the CSV file: {e}")
         st.stop()
 
+    # Variable selection
+    st.sidebar.subheader("Select Variables of Interest")
+    all_columns = df.columns.tolist()
+
+    # Multiselect with search functionality for variables
+    selected_columns = st.sidebar.multiselect(
+        'Select variables to use',
+        options=all_columns,
+        default=all_columns[:5] if len(all_columns) > 5 else all_columns,
+        help="Start typing to search for variables"
+    )
+
+    if not selected_columns:
+        st.error("Please select at least one variable.")
+        st.stop()
+
+    # Update dataframe to include only selected columns
+    df = df[selected_columns]
+
     # Allow users to rename columns
     st.sidebar.subheader("Column Settings")
     rename_columns = st.sidebar.checkbox("Rename columns for clarity")
@@ -74,6 +93,7 @@ if uploaded_file is not None:
             new_name = st.sidebar.text_input(f"Rename column '{col}'", value=col)
             new_column_names[col] = new_name
         df.rename(columns=new_column_names, inplace=True)
+        selected_columns = df.columns.tolist()
 
     # Handle missing values
     if df.isnull().values.any():
@@ -103,13 +123,10 @@ if uploaded_file is not None:
         except:
             return False
 
-    # Lists of columns
-    all_columns = df.columns.tolist()
-
     # Data type correction
     st.sidebar.subheader("Data Type Correction")
     data_type_corrections = {}
-    for col in all_columns:
+    for col in selected_columns:
         current_type = df[col].dtype
         desired_type = st.sidebar.selectbox(f"Select data type for column '{col}'", options=['auto', 'string', 'numeric'], index=0)
         data_type_corrections[col] = desired_type
@@ -121,8 +138,8 @@ if uploaded_file is not None:
             df[col] = pd.to_numeric(df[col], errors='coerce')
 
     # Update column lists after type correction
-    numeric_columns = [col for col in all_columns if is_numeric(df[col])]
-    categorical_columns = [col for col in all_columns if not is_numeric(df[col])]
+    numeric_columns = [col for col in selected_columns if is_numeric(df[col])]
+    categorical_columns = [col for col in selected_columns if not is_numeric(df[col])]
 
     # Initialize variables
     x_variable = y_variable = z_variable = hue_variable = None
@@ -137,17 +154,18 @@ if uploaded_file is not None:
     # Variable selection based on chart type
     if chart_type == 'Heatmap':
         st.sidebar.subheader('Heatmap Options')
-        selected_columns = st.sidebar.multiselect('Select variables for Heatmap (Numeric)', numeric_columns)
-        if len(selected_columns) < 2:
+        selected_heatmap_vars = st.sidebar.multiselect('Select variables for Heatmap (Numeric)', numeric_columns)
+        if len(selected_heatmap_vars) < 2:
             st.error("Please select at least two numeric variables for Heatmap.")
             st.stop()
         # Chart Title Input
         chart_title = st.sidebar.text_input("Enter chart title", "Heatmap")
+        selected_columns_plot = selected_heatmap_vars
 
     elif chart_type == 'Pairplot':
         st.sidebar.subheader('Pairplot Options')
-        selected_columns = st.sidebar.multiselect('Select variables for Pairplot', all_columns)
-        if len(selected_columns) < 2:
+        selected_pairplot_vars = st.sidebar.multiselect('Select variables for Pairplot', selected_columns)
+        if len(selected_pairplot_vars) < 2:
             st.error("Please select at least two variables for Pairplot.")
             st.stop()
         # Grouping variable
@@ -157,6 +175,7 @@ if uploaded_file is not None:
             hue_variable = None
         # Chart Title Input
         chart_title = st.sidebar.text_input("Enter chart title", "Pairplot")
+        selected_columns_plot = selected_pairplot_vars
 
     elif chart_type == '3D Scatter Plot':
         if len(numeric_columns) < 3:
@@ -180,6 +199,7 @@ if uploaded_file is not None:
             hue_variable = st.sidebar.selectbox('Select grouping variable', categorical_columns + numeric_columns, key='hue_3d')
         else:
             hue_variable = None
+        selected_columns_plot = [x_variable, y_variable, z_variable]
 
     else:
         st.sidebar.subheader(f'{chart_type} Options')
@@ -204,6 +224,7 @@ if uploaded_file is not None:
                 hue_variable = st.sidebar.selectbox('Select grouping variable', categorical_columns + numeric_columns)
             else:
                 hue_variable = None
+            selected_columns_plot = [x_variable, y_variable]
 
         elif chart_type == 'Bar Plot':
             if not categorical_columns:
@@ -225,6 +246,7 @@ if uploaded_file is not None:
                 hue_variable = st.sidebar.selectbox('Select grouping variable', categorical_columns + numeric_columns)
             else:
                 hue_variable = None
+            selected_columns_plot = [x_variable, y_variable]
 
         elif chart_type == 'Histogram':
             if not numeric_columns:
@@ -242,6 +264,7 @@ if uploaded_file is not None:
                 hue_variable = st.sidebar.selectbox('Select grouping variable', categorical_columns + numeric_columns)
             else:
                 hue_variable = None
+            selected_columns_plot = [x_variable]
 
         elif chart_type == 'Box Plot':
             if not categorical_columns:
@@ -263,6 +286,7 @@ if uploaded_file is not None:
                 hue_variable = st.sidebar.selectbox('Select grouping variable', categorical_columns + numeric_columns)
             else:
                 hue_variable = None
+            selected_columns_plot = [x_variable, y_variable]
 
     # Plotting
     st.write(f"## {chart_title}")
@@ -270,33 +294,18 @@ if uploaded_file is not None:
     try:
         if chart_type == 'Heatmap':
             # Correlation matrix
-            corr = df[selected_columns].corr()
+            corr = df[selected_columns_plot].corr()
             fig, ax = plt.subplots()
             sns.heatmap(corr, annot=True, cmap='coolwarm', ax=ax)
             ax.set_title(chart_title)
             st.pyplot(fig)
 
-            # Download buttons
-            buffer = BytesIO()
-            fig.savefig(buffer, format='png', bbox_inches='tight')
-            buffer.seek(0)
-            buffer_pdf = BytesIO()
-            fig.savefig(buffer_pdf, format='pdf', bbox_inches='tight')
-            buffer_pdf.seek(0)
-
         elif chart_type == 'Pairplot':
             # Pairplot
-            g = sns.pairplot(df[selected_columns], hue=hue_variable)
+            g = sns.pairplot(df[selected_columns_plot], hue=hue_variable)
             # Set the title
             g.fig.suptitle(chart_title, y=1.02)
             st.pyplot(g)
-            # Save the figure
-            buffer = BytesIO()
-            g.savefig(buffer, format='png', bbox_inches='tight')
-            buffer.seek(0)
-            buffer_pdf = BytesIO()
-            g.savefig(buffer_pdf, format='pdf', bbox_inches='tight')
-            buffer_pdf.seek(0)
 
         elif chart_type == '3D Scatter Plot':
             from mpl_toolkits.mplot3d import Axes3D  # noqa
@@ -324,18 +333,10 @@ if uploaded_file is not None:
             ax.set_title(chart_title)
             st.pyplot(fig)
 
-            # Download buttons
-            buffer = BytesIO()
-            fig.savefig(buffer, format='png', bbox_inches='tight')
-            buffer.seek(0)
-            buffer_pdf = BytesIO()
-            fig.savefig(buffer_pdf, format='pdf', bbox_inches='tight')
-            buffer_pdf.seek(0)
-
         else:
             # Other chart types
             fig, ax = plt.subplots()
-            plot_data = df.dropna(subset=[x_variable, y_variable])
+            plot_data = df.dropna(subset=selected_columns_plot)
             if chart_type == 'Scatter Plot':
                 sns.scatterplot(data=plot_data, x=x_variable, y=y_variable, hue=hue_variable, ax=ax)
             elif chart_type == 'Line Plot':
@@ -343,7 +344,7 @@ if uploaded_file is not None:
             elif chart_type == 'Bar Plot':
                 sns.barplot(data=plot_data, x=x_variable, y=y_variable, hue=hue_variable, ax=ax)
             elif chart_type == 'Histogram':
-                sns.histplot(data=df, x=x_variable, hue=hue_variable, kde=True, ax=ax)
+                sns.histplot(data=plot_data, x=x_variable, hue=hue_variable, kde=True, ax=ax)
                 ax.set_ylabel(y_label)
             elif chart_type == 'Box Plot':
                 sns.boxplot(data=plot_data, x=x_variable, y=y_variable, hue=hue_variable, ax=ax)
@@ -356,13 +357,13 @@ if uploaded_file is not None:
             ax.set_title(chart_title)
             st.pyplot(fig)
 
-            # Download buttons
-            buffer = BytesIO()
-            fig.savefig(buffer, format='png', bbox_inches='tight')
-            buffer.seek(0)
-            buffer_pdf = BytesIO()
-            fig.savefig(buffer_pdf, format='pdf', bbox_inches='tight')
-            buffer_pdf.seek(0)
+        # Download buttons
+        buffer = BytesIO()
+        fig.savefig(buffer, format='png', bbox_inches='tight')
+        buffer.seek(0)
+        buffer_pdf = BytesIO()
+        fig.savefig(buffer_pdf, format='pdf', bbox_inches='tight')
+        buffer_pdf.seek(0)
 
         # Display download buttons
         st.download_button(
