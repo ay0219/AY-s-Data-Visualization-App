@@ -18,7 +18,7 @@ st.sidebar.header('User Options')
 
 # Function to detect file encoding
 def detect_encoding(uploaded_file):
-    raw_data = uploaded_file.read()
+    raw_data = uploaded_file.getvalue()
     result = chardet.detect(raw_data)
     encoding = result['encoding']
     return encoding
@@ -29,7 +29,6 @@ uploaded_file = st.sidebar.file_uploader("Upload your CSV file", type=["csv"])
 # Check if file is uploaded
 if uploaded_file is not None:
     # Encoding detection
-    uploaded_file.seek(0)
     detected_encoding = detect_encoding(uploaded_file)
     st.sidebar.write(f"Detected file encoding: **{detected_encoding}**")
 
@@ -50,15 +49,15 @@ if uploaded_file is not None:
 
     # Read CSV with specified options
     try:
-        uploaded_file.seek(0)  # Reset file pointer
+        # Reset file pointer
+        uploaded_file.seek(0)
         df = pd.read_csv(
             uploaded_file,
             encoding=encoding_options,
             delimiter=delimiter,
             header=header,
             engine='python',
-            error_bad_lines=False,
-            warn_bad_lines=True
+            on_bad_lines='skip'  # Updated parameter
         )
         st.write("## Preview of the dataset")
         st.dataframe(df.head())
@@ -303,13 +302,18 @@ if uploaded_file is not None:
             from mpl_toolkits.mplot3d import Axes3D  # noqa
             fig = plt.figure()
             ax = fig.add_subplot(111, projection='3d')
-            x = pd.to_numeric(df[x_variable])
-            y = pd.to_numeric(df[y_variable])
-            z = pd.to_numeric(df[z_variable])
+            x = pd.to_numeric(df[x_variable], errors='coerce')
+            y = pd.to_numeric(df[y_variable], errors='coerce')
+            z = pd.to_numeric(df[z_variable], errors='coerce')
+            valid_idx = x.notnull() & y.notnull() & z.notnull()
+            x = x[valid_idx]
+            y = y[valid_idx]
+            z = z[valid_idx]
             if hue_variable:
-                labels = df[hue_variable].unique()
+                hue_data = df.loc[valid_idx, hue_variable]
+                labels = hue_data.unique()
                 for label in labels:
-                    idx = df[hue_variable] == label
+                    idx = hue_data == label
                     ax.scatter(x[idx], y[idx], z[idx], label=str(label))
                 ax.legend()
             else:
@@ -331,18 +335,18 @@ if uploaded_file is not None:
         else:
             # Other chart types
             fig, ax = plt.subplots()
-
+            plot_data = df.dropna(subset=[x_variable, y_variable])
             if chart_type == 'Scatter Plot':
-                sns.scatterplot(data=df, x=x_variable, y=y_variable, hue=hue_variable, ax=ax)
+                sns.scatterplot(data=plot_data, x=x_variable, y=y_variable, hue=hue_variable, ax=ax)
             elif chart_type == 'Line Plot':
-                sns.lineplot(data=df, x=x_variable, y=y_variable, hue=hue_variable, ax=ax)
+                sns.lineplot(data=plot_data, x=x_variable, y=y_variable, hue=hue_variable, ax=ax)
             elif chart_type == 'Bar Plot':
-                sns.barplot(data=df, x=x_variable, y=y_variable, hue=hue_variable, ax=ax)
+                sns.barplot(data=plot_data, x=x_variable, y=y_variable, hue=hue_variable, ax=ax)
             elif chart_type == 'Histogram':
                 sns.histplot(data=df, x=x_variable, hue=hue_variable, kde=True, ax=ax)
                 ax.set_ylabel(y_label)
             elif chart_type == 'Box Plot':
-                sns.boxplot(data=df, x=x_variable, y=y_variable, hue=hue_variable, ax=ax)
+                sns.boxplot(data=plot_data, x=x_variable, y=y_variable, hue=hue_variable, ax=ax)
             else:
                 st.error("Unsupported chart type selected.")
                 st.stop()
