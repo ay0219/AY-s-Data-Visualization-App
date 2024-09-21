@@ -11,7 +11,7 @@ st.set_page_config(page_title="Universal Data Visualization App", layout="wide")
 
 # Title of the app
 st.title("Universal Data Visualization Tool")
-st.write("Upload any CSV file, specify parsing options if needed, select variables of interest, explore your data, and visualize it.")
+st.write("Upload any CSV file, specify parsing options if needed, select variables of interest, explore your data, filter it, and visualize it.")
 
 # Sidebar header
 st.sidebar.header('User Options')
@@ -141,18 +141,50 @@ if uploaded_file is not None:
     numeric_columns = [col for col in selected_columns if pd.api.types.is_numeric_dtype(df[col])]
     categorical_columns = [col for col in selected_columns if pd.api.types.is_string_dtype(df[col]) or pd.api.types.is_categorical_dtype(df[col])]
 
+    # Data Filtering Section
+    st.sidebar.subheader("Data Filtering")
+    df_filtered = df.copy()
+    filter_expander = st.sidebar.expander("Filter Data", expanded=False)
+    with filter_expander:
+        # Filter numeric columns
+        for col in numeric_columns:
+            min_val = float(df[col].min())
+            max_val = float(df[col].max())
+            selected_range = st.slider(f"Select range for {col}", min_value=min_val, max_value=max_val, value=(min_val, max_val))
+            df_filtered = df_filtered[(df_filtered[col] >= selected_range[0]) & (df_filtered[col] <= selected_range[1])]
+
+        # Filter categorical columns
+        for col in categorical_columns:
+            unique_values = df[col].unique()
+            selected_values = st.multiselect(f"Select values for {col}", options=unique_values, default=unique_values)
+            df_filtered = df_filtered[df_filtered[col].isin(selected_values)]
+
+    # Data Sampling Option
+    st.sidebar.subheader("Data Sampling")
+    sample_data = st.sidebar.checkbox("Sample data")
+    if sample_data:
+        sample_size = st.sidebar.number_input("Enter sample size (number of rows)", min_value=1, max_value=len(df_filtered), value=min(1000, len(df_filtered)))
+        df_filtered = df_filtered.sample(n=int(sample_size), random_state=42)
+
     # Data Exploration Section
     st.subheader("Data Exploration")
+
+    # Display filtered data
+    st.write("### Filtered Data Preview")
+    st.dataframe(df_filtered.head())
+
+    # Display number of data points
+    st.write(f"Total data points after filtering: {len(df_filtered)}")
 
     # Display summary statistics
     if st.checkbox("Show Summary Statistics"):
         st.write("### Summary Statistics of Numeric Variables")
-        st.write(df[numeric_columns].describe())
+        st.write(df_filtered[numeric_columns].describe())
 
     # Interactive data table
     if st.checkbox("Explore Data in Interactive Table"):
         st.write("### Interactive Data Table")
-        st.dataframe(df)
+        st.dataframe(df_filtered)
 
     # Initialize variables
     x_variable = y_variable = z_variable = hue_variable = None
@@ -178,7 +210,7 @@ if uploaded_file is not None:
 
     elif chart_type == 'Pairplot':
         st.sidebar.subheader('Pairplot Options')
-        selected_pairplot_vars = st.sidebar.multiselect('Select variables for Pairplot', selected_columns)
+        selected_pairplot_vars = st.sidebar.multiselect('Select variables for Pairplot', df_filtered.columns.tolist())
         if len(selected_pairplot_vars) < 2:
             st.error("Please select at least two variables for Pairplot.")
             st.stop()
@@ -308,7 +340,7 @@ if uploaded_file is not None:
     try:
         if chart_type == 'Heatmap':
             # Correlation matrix
-            corr = df[selected_columns_plot].corr()
+            corr = df_filtered[selected_columns_plot].corr()
             fig, ax = plt.subplots()
             sns.heatmap(corr, annot=True, cmap='coolwarm', ax=ax)
             ax.set_title(chart_title)
@@ -316,7 +348,7 @@ if uploaded_file is not None:
 
         elif chart_type == 'Pairplot':
             # Pairplot
-            g = sns.pairplot(df[selected_columns_plot], hue=hue_variable)
+            g = sns.pairplot(df_filtered[selected_columns_plot], hue=hue_variable)
             # Set the title
             g.fig.suptitle(chart_title, y=1.02)
             st.pyplot(g)
@@ -325,15 +357,15 @@ if uploaded_file is not None:
             from mpl_toolkits.mplot3d import Axes3D  # noqa
             fig = plt.figure()
             ax = fig.add_subplot(111, projection='3d')
-            x = pd.to_numeric(df[x_variable], errors='coerce')
-            y = pd.to_numeric(df[y_variable], errors='coerce')
-            z = pd.to_numeric(df[z_variable], errors='coerce')
+            x = pd.to_numeric(df_filtered[x_variable], errors='coerce')
+            y = pd.to_numeric(df_filtered[y_variable], errors='coerce')
+            z = pd.to_numeric(df_filtered[z_variable], errors='coerce')
             valid_idx = x.notnull() & y.notnull() & z.notnull()
             x = x[valid_idx]
             y = y[valid_idx]
             z = z[valid_idx]
             if hue_variable:
-                hue_data = df.loc[valid_idx, hue_variable]
+                hue_data = df_filtered.loc[valid_idx, hue_variable]
                 labels = hue_data.unique()
                 for label in labels:
                     idx = hue_data == label
@@ -350,9 +382,14 @@ if uploaded_file is not None:
         else:
             # Other chart types
             fig, ax = plt.subplots()
-            plot_data = df.dropna(subset=selected_columns_plot)
+
+            # Adjust label rotation and font size to handle overlaps
+            plt.xticks(rotation=45, ha='right')
+            plt.tight_layout()
+
+            plot_data = df_filtered.dropna(subset=selected_columns_plot)
             if chart_type == 'Scatter Plot':
-                sns.scatterplot(data=plot_data, x=x_variable, y=y_variable, hue=hue_variable, ax=ax)
+                sns.scatterplot(data=plot_data, x=x_variable, y=y_variable, hue=hue_variable, ax=ax, s=50)
             elif chart_type == 'Line Plot':
                 sns.lineplot(data=plot_data, x=x_variable, y=y_variable, hue=hue_variable, ax=ax)
             elif chart_type == 'Bar Plot':
@@ -366,6 +403,10 @@ if uploaded_file is not None:
                 st.error("Unsupported chart type selected.")
                 st.stop()
 
+            # Limit number of x-ticks if too many
+            if len(plot_data[x_variable].unique()) > 20:
+                ax.set_xticks(ax.get_xticks()[::int(len(ax.get_xticks())/20)])
+            
             ax.set_xlabel(x_label)
             ax.set_ylabel(y_label)
             ax.set_title(chart_title)
